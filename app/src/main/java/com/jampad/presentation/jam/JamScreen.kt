@@ -43,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -656,8 +657,18 @@ private fun BassControlArea(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(modifier = Modifier.height(4.dp))
+            val keyScrollState = rememberScrollState()
+            val selectedKeyIndex = remember(config.key) {
+                MusicalKey.entries.indexOf(config.key)
+            }
+            LaunchedEffect(selectedKeyIndex) {
+                // Each chip is ~60dp wide + 4dp gap; scroll to center the selected key
+                val chipWidth = 64
+                val scrollTo = (selectedKeyIndex * chipWidth - 100).coerceAtLeast(0)
+                keyScrollState.animateScrollTo(scrollTo)
+            }
             Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                modifier = Modifier.horizontalScroll(keyScrollState),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 MusicalKey.entries.forEach { key ->
