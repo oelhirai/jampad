@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -44,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -53,6 +53,7 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jampad.domain.model.LoopState
+import com.jampad.presentation.common.WaveformView
 import com.jampad.ui.theme.BassPurple
 import com.jampad.ui.theme.DrumsCyan
 import com.jampad.ui.theme.GuitarAmber
@@ -62,6 +63,8 @@ import com.jampad.ui.theme.RecordRed
 @Composable
 fun JamScreen(viewModel: JamViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val waveform by viewModel.waveformSamples.collectAsStateWithLifecycle()
+    val progress by viewModel.playbackProgress.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     var hasPermission by rememberSaveable {
@@ -83,14 +86,17 @@ fun JamScreen(viewModel: JamViewModel = hiltViewModel()) {
 
     JamContent(
         uiState = uiState,
+        waveformSamples = waveform,
+        playbackProgress = progress,
         onTabSelected = viewModel::onTabSelected,
         onBpmChanged = viewModel::onBpmChanged,
         onBarCountChanged = viewModel::onBarCountChanged,
         onBigButtonClick = {
-            if (!hasPermission) {
+            if (!hasPermission && uiState.loopState == LoopState.EMPTY) {
                 permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            } else {
+                viewModel.onBigButtonPress()
             }
-            // Audio recording logic will be added in M2
         },
     )
 }
@@ -99,6 +105,8 @@ fun JamScreen(viewModel: JamViewModel = hiltViewModel()) {
 @Composable
 private fun JamContent(
     uiState: JamUiState,
+    waveformSamples: FloatArray,
+    playbackProgress: Float,
     onTabSelected: (JamTab) -> Unit,
     onBpmChanged: (Int) -> Unit,
     onBarCountChanged: (Int) -> Unit,
@@ -147,8 +155,13 @@ private fun JamContent(
                 .padding(horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Waveform strip placeholder
-            WaveformPlaceholder(loopState = uiState.loopState)
+            // Waveform strip
+            WaveformStrip(
+                loopState = uiState.loopState,
+                waveformSamples = waveformSamples,
+                playbackProgress = playbackProgress,
+                beatCount = uiState.barCount * 4,
+            )
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -160,9 +173,10 @@ private fun JamContent(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Contextual control area placeholder
+            // Contextual control area
             ContextualArea(
                 tab = uiState.selectedTab,
+                loopState = uiState.loopState,
                 modifier = Modifier.weight(1f),
             )
 
@@ -212,34 +226,47 @@ private fun BarCountChips(
 }
 
 @Composable
-private fun WaveformPlaceholder(loopState: LoopState) {
+private fun WaveformStrip(
+    loopState: LoopState,
+    waveformSamples: FloatArray,
+    playbackProgress: Float,
+    beatCount: Int,
+) {
+    val borderColor = when (loopState) {
+        LoopState.RECORDING -> RecordRed.copy(alpha = 0.6f)
+        LoopState.OVERDUBBING -> GuitarAmber.copy(alpha = 0.6f)
+        else -> MaterialTheme.colorScheme.outline
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(100.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .border(
-                width = 1.dp,
-                color = when (loopState) {
-                    LoopState.RECORDING -> RecordRed.copy(alpha = 0.6f)
-                    LoopState.OVERDUBBING -> GuitarAmber.copy(alpha = 0.6f)
-                    else -> MaterialTheme.colorScheme.outline
-                },
-                shape = RoundedCornerShape(16.dp),
-            ),
+            .border(1.dp, borderColor, RoundedCornerShape(16.dp)),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = when (loopState) {
-                LoopState.EMPTY -> "Record a riff to get started"
-                LoopState.RECORDING -> "Recording..."
-                LoopState.LOOPING -> "Looping"
-                LoopState.OVERDUBBING -> "Overdubbing..."
-            },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (waveformSamples.isEmpty()) {
+            Text(
+                text = when (loopState) {
+                    LoopState.EMPTY -> "Record a riff to get started"
+                    LoopState.RECORDING -> "Recording..."
+                    else -> ""
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            WaveformView(
+                samples = waveformSamples,
+                progress = if (loopState == LoopState.LOOPING || loopState == LoopState.OVERDUBBING) playbackProgress else 0f,
+                beatCount = beatCount,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+        }
     }
 }
 
@@ -277,7 +304,11 @@ private fun LayerTabs(
 }
 
 @Composable
-private fun ContextualArea(tab: JamTab, modifier: Modifier = Modifier) {
+private fun ContextualArea(
+    tab: JamTab,
+    loopState: LoopState,
+    modifier: Modifier = Modifier,
+) {
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -286,7 +317,12 @@ private fun ContextualArea(tab: JamTab, modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center,
     ) {
         val text = when (tab) {
-            JamTab.GUITAR -> "Guitar controls — coming in M2"
+            JamTab.GUITAR -> when (loopState) {
+                LoopState.EMPTY -> "Set BPM and bar count, then hit REC"
+                LoopState.RECORDING -> "Play your riff..."
+                LoopState.LOOPING -> "Tap OVERDUB to layer more guitar"
+                LoopState.OVERDUBBING -> "Playing over the loop..."
+            }
             JamTab.DRUMS -> "Drum pad — coming in M4"
             JamTab.BASS -> "Bass generator — coming in M6"
         }
@@ -335,7 +371,7 @@ private fun MiniMixer(mixState: com.jampad.domain.model.MixState) {
 private fun MixerSlider(
     label: String,
     value: Float,
-    color: androidx.compose.ui.graphics.Color,
+    color: Color,
     muted: Boolean,
     onValueChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
@@ -412,6 +448,8 @@ private fun JamContentPreview() {
     JamPadTheme {
         JamContent(
             uiState = JamUiState(),
+            waveformSamples = floatArrayOf(),
+            playbackProgress = 0f,
             onTabSelected = {},
             onBpmChanged = {},
             onBarCountChanged = {},

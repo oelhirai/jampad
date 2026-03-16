@@ -11,7 +11,7 @@
 
 ## Current Phase
 
-**Phase 1 — Foundation** `🔄 In progress`
+**Phase 3 — Tempo & Key Detection** `⬜ Pending`
 
 ---
 
@@ -20,8 +20,8 @@
 | # | Milestone | Status | Harvest | Notes |
 |---|---|---|---|---|
 | M0 | Scaffold & AI workflow | ✅ Done | ⬜ | Clean build verified |
-| M1 | Foundation (dark theme, Hilt, permissions) | 🔄 In progress | ⬜ | |
-| M2 | Audio loop engine | ⬜ Pending | ⬜ | Record, fixed-bar loop, waveform |
+| M1 | Foundation (dark theme, Hilt, permissions) | ✅ Done | ⬜ | Bundled with M0 scaffold |
+| M2 | Audio loop engine | ✅ Done | ⬜ | Record, loop, overdub, waveform, playhead verified on device |
 | M3 | Tempo & key detection | ⬜ Pending | ⬜ | Auto BPM, tap-tempo, pitch detection |
 | M4 | Drum step sequencer | ⬜ Pending | ⬜ | Grid UI, samples, presets |
 | M5 | Drum tap pads | ⬜ Pending | ⬜ | MPC pads, quantize, toggle |
