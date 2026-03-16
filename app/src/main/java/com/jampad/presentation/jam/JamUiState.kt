@@ -1,5 +1,6 @@
 package com.jampad.presentation.jam
 
+import com.jampad.domain.model.BassConfig
 import com.jampad.domain.model.DrumPattern
 import com.jampad.domain.model.LoopState
 import com.jampad.domain.model.MixState
@@ -15,6 +16,7 @@ data class JamUiState(
     val drumPattern: DrumPattern = DrumPattern.empty(),
     val drumPreset: MusicStyle? = null,
     val drumMode: DrumMode = DrumMode.SEQUENCER,
+    val bassConfig: BassConfig = BassConfig(),
 )
 
 enum class JamTab {

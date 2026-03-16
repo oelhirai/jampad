@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -52,9 +54,12 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jampad.domain.model.BassPatternType
 import com.jampad.domain.model.DrumInstrument
 import com.jampad.domain.model.LoopState
+import com.jampad.domain.model.MusicalKey
 import com.jampad.domain.model.MusicStyle
+import com.jampad.presentation.common.DrumPads
 import com.jampad.presentation.common.StepSequencer
 import com.jampad.presentation.common.WaveformView
 import com.jampad.ui.theme.BassPurple
@@ -106,6 +111,12 @@ fun JamScreen(viewModel: JamViewModel = hiltViewModel()) {
         onToggleDrumHit = viewModel::onToggleDrumHit,
         onLoadDrumPreset = viewModel::onLoadDrumPreset,
         onClearDrumPattern = viewModel::onClearDrumPattern,
+        onDrumModeChanged = viewModel::onDrumModeChanged,
+        onDrumPadTap = viewModel::onDrumPadTap,
+        onBassKeyChanged = viewModel::onBassKeyChanged,
+        onBassPatternChanged = viewModel::onBassPatternChanged,
+        onBassStyleChanged = viewModel::onBassStyleChanged,
+        onBassToggle = viewModel::onBassToggle,
     )
 }
 
@@ -123,6 +134,12 @@ private fun JamContent(
     onToggleDrumHit: (DrumInstrument, Int) -> Unit,
     onLoadDrumPreset: (MusicStyle) -> Unit,
     onClearDrumPattern: () -> Unit,
+    onDrumModeChanged: (DrumMode) -> Unit,
+    onDrumPadTap: (DrumInstrument) -> Unit,
+    onBassKeyChanged: (MusicalKey) -> Unit,
+    onBassPatternChanged: (BassPatternType) -> Unit,
+    onBassStyleChanged: (MusicStyle) -> Unit,
+    onBassToggle: () -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -192,9 +209,17 @@ private fun JamContent(
                 drumPattern = uiState.drumPattern,
                 drumCurrentStep = drumCurrentStep,
                 drumPreset = uiState.drumPreset,
+                drumMode = uiState.drumMode,
+                bassConfig = uiState.bassConfig,
                 onToggleDrumHit = onToggleDrumHit,
                 onLoadDrumPreset = onLoadDrumPreset,
                 onClearDrumPattern = onClearDrumPattern,
+                onDrumModeChanged = onDrumModeChanged,
+                onDrumPadTap = onDrumPadTap,
+                onBassKeyChanged = onBassKeyChanged,
+                onBassPatternChanged = onBassPatternChanged,
+                onBassStyleChanged = onBassStyleChanged,
+                onBassToggle = onBassToggle,
                 modifier = Modifier.weight(1f),
             )
 
@@ -328,9 +353,17 @@ private fun ContextualArea(
     drumPattern: com.jampad.domain.model.DrumPattern,
     drumCurrentStep: Int,
     drumPreset: MusicStyle?,
+    drumMode: DrumMode,
+    bassConfig: com.jampad.domain.model.BassConfig,
     onToggleDrumHit: (DrumInstrument, Int) -> Unit,
     onLoadDrumPreset: (MusicStyle) -> Unit,
     onClearDrumPattern: () -> Unit,
+    onDrumModeChanged: (DrumMode) -> Unit,
+    onDrumPadTap: (DrumInstrument) -> Unit,
+    onBassKeyChanged: (MusicalKey) -> Unit,
+    onBassPatternChanged: (BassPatternType) -> Unit,
+    onBassStyleChanged: (MusicStyle) -> Unit,
+    onBassToggle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -362,22 +395,22 @@ private fun ContextualArea(
                     pattern = drumPattern,
                     currentStep = drumCurrentStep,
                     selectedPreset = drumPreset,
+                    mode = drumMode,
                     onToggleHit = onToggleDrumHit,
                     onLoadPreset = onLoadDrumPreset,
                     onClear = onClearDrumPattern,
+                    onModeChanged = onDrumModeChanged,
+                    onPadTap = onDrumPadTap,
                 )
             }
             JamTab.BASS -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "Bass generator — coming in M6",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                BassControlArea(
+                    config = bassConfig,
+                    onKeyChanged = onBassKeyChanged,
+                    onPatternChanged = onBassPatternChanged,
+                    onStyleChanged = onBassStyleChanged,
+                    onToggle = onBassToggle,
+                )
             }
         }
     }
@@ -388,22 +421,68 @@ private fun DrumControlArea(
     pattern: com.jampad.domain.model.DrumPattern,
     currentStep: Int,
     selectedPreset: MusicStyle?,
+    mode: DrumMode,
     onToggleHit: (DrumInstrument, Int) -> Unit,
     onLoadPreset: (MusicStyle) -> Unit,
     onClear: () -> Unit,
+    onModeChanged: (DrumMode) -> Unit,
+    onPadTap: (DrumInstrument) -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(12.dp),
     ) {
-        // Sequencer grid
-        StepSequencer(
-            pattern = pattern,
-            currentStep = currentStep,
-            onToggleHit = onToggleHit,
-            modifier = Modifier.weight(1f),
-        )
+        // Mode toggle
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DrumMode.entries.forEach { m ->
+                FilterChip(
+                    selected = mode == m,
+                    onClick = { onModeChanged(m) },
+                    label = {
+                        Text(
+                            text = when (m) {
+                                DrumMode.SEQUENCER -> "Sequencer"
+                                DrumMode.PADS -> "Pads"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = DrumsCyan.copy(alpha = 0.2f),
+                        selectedLabelColor = DrumsCyan,
+                    ),
+                    modifier = Modifier.height(28.dp),
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        when (mode) {
+            DrumMode.SEQUENCER -> {
+                StepSequencer(
+                    pattern = pattern,
+                    currentStep = currentStep,
+                    onToggleHit = onToggleHit,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            DrumMode.PADS -> {
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    DrumPads(
+                        onPadTap = onPadTap,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -450,6 +529,151 @@ private fun DrumControlArea(
                 },
                 modifier = Modifier.height(28.dp),
             )
+        }
+    }
+}
+
+@Composable
+private fun BassControlArea(
+    config: com.jampad.domain.model.BassConfig,
+    onKeyChanged: (MusicalKey) -> Unit,
+    onPatternChanged: (BassPatternType) -> Unit,
+    onStyleChanged: (MusicStyle) -> Unit,
+    onToggle: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        // Enable toggle
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "Bass",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = BassPurple,
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            FilterChip(
+                selected = config.enabled,
+                onClick = onToggle,
+                label = {
+                    Text(
+                        text = if (config.enabled) "ON" else "OFF",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = BassPurple.copy(alpha = 0.2f),
+                    selectedLabelColor = BassPurple,
+                ),
+                modifier = Modifier.height(28.dp),
+            )
+        }
+
+        // Key selector
+        Column {
+            Text(
+                text = "Key",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                MusicalKey.entries.forEach { key ->
+                    FilterChip(
+                        selected = config.key == key,
+                        onClick = { onKeyChanged(key) },
+                        label = {
+                            Text(
+                                text = key.displayName,
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = BassPurple.copy(alpha = 0.2f),
+                            selectedLabelColor = BassPurple,
+                        ),
+                        modifier = Modifier.height(28.dp),
+                    )
+                }
+            }
+        }
+
+        // Pattern type
+        Column {
+            Text(
+                text = "Pattern",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                BassPatternType.entries.forEach { pattern ->
+                    FilterChip(
+                        selected = config.pattern == pattern,
+                        onClick = { onPatternChanged(pattern) },
+                        label = {
+                            Text(
+                                text = pattern.displayName,
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = BassPurple.copy(alpha = 0.2f),
+                            selectedLabelColor = BassPurple,
+                        ),
+                        modifier = Modifier.height(28.dp),
+                    )
+                }
+            }
+        }
+
+        // Style
+        Column {
+            Text(
+                text = "Style",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                MusicStyle.entries.forEach { style ->
+                    FilterChip(
+                        selected = config.style == style,
+                        onClick = { onStyleChanged(style) },
+                        label = {
+                            Text(
+                                text = when (style) {
+                                    MusicStyle.FUNK -> "Funk"
+                                    MusicStyle.LO_FI -> "Lo-fi"
+                                    MusicStyle.ROCK -> "Rock"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = BassPurple.copy(alpha = 0.2f),
+                            selectedLabelColor = BassPurple,
+                        ),
+                        modifier = Modifier.height(28.dp),
+                    )
+                }
+            }
         }
     }
 }
@@ -578,6 +802,12 @@ private fun JamContentPreview() {
             onToggleDrumHit = { _, _ -> },
             onLoadDrumPreset = {},
             onClearDrumPattern = {},
+            onDrumModeChanged = {},
+            onDrumPadTap = {},
+            onBassKeyChanged = {},
+            onBassPatternChanged = {},
+            onBassStyleChanged = {},
+            onBassToggle = {},
         )
     }
 }

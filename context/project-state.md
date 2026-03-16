@@ -11,7 +11,7 @@
 
 ## Current Phase
 
-**Phase 4 — Drum Step Sequencer** `✅ Done`
+**Phase 6 — Bass Generator** `✅ Done`
 
 ---
 
@@ -24,8 +24,8 @@
 | M2 | Audio loop engine | ✅ Done | ⬜ | Record, loop, overdub, waveform, playhead verified on device |
 | M3 | Tempo & key detection | ⬜ Pending | ⬜ | Auto BPM, tap-tempo, pitch detection |
 | M4 | Drum step sequencer | ✅ Done | ⬜ | Grid UI, synth samples, presets, verified on device |
-| M5 | Drum tap pads | ⬜ Pending | ⬜ | MPC pads, quantize, toggle |
-| M6 | Bass generator | ⬜ Pending | ⬜ | Pattern styles, key-aware |
+| M5 | Drum tap pads | ✅ Done | ⬜ | MPC pads, mode toggle, haptic feedback, live recording |
+| M6 | Bass generator | ✅ Done | ⬜ | Sine synth, 5 patterns, key selector, style chips |
 | M7 | Mixer & layering | ⬜ Pending | ⬜ | 3-channel mix, volume, mute |
 | M8 | Export | ⬜ Pending | ⬜ | WAV/MP3 mixdown, share |
 | M9 | Session persistence | ⬜ Pending | ⬜ | Save/load via Room |

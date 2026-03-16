@@ -2,12 +2,16 @@ package com.jampad.presentation.jam
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.jampad.data.audio.BassEngine
 import com.jampad.data.audio.DrumEngine
 import com.jampad.data.audio.LoopEngine
+import com.jampad.domain.model.BassConfig
+import com.jampad.domain.model.BassPatternType
 import com.jampad.domain.model.DrumInstrument
 import com.jampad.domain.model.DrumPattern
 import com.jampad.domain.model.DrumPresets
 import com.jampad.domain.model.LoopState
+import com.jampad.domain.model.MusicalKey
 import com.jampad.domain.model.MusicStyle
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +25,7 @@ import javax.inject.Inject
 class JamViewModel @Inject constructor(
     private val loopEngine: LoopEngine,
     private val drumEngine: DrumEngine,
+    private val bassEngine: BassEngine,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(JamUiState())
@@ -34,16 +39,22 @@ class JamViewModel @Inject constructor(
         viewModelScope.launch {
             loopEngine.loopState.collect { state ->
                 _uiState.update { it.copy(loopState = state) }
-                // Start/stop drum engine in sync with loop
+                val ui = _uiState.value
                 when (state) {
                     LoopState.LOOPING, LoopState.OVERDUBBING -> {
-                        val ui = _uiState.value
                         if (ui.drumPattern.hits.values.any { hits -> hits.any { it } }) {
                             drumEngine.pattern = ui.drumPattern
                             drumEngine.start(ui.bpm, ui.barCount)
                         }
+                        if (ui.bassConfig.enabled) {
+                            bassEngine.config = ui.bassConfig
+                            bassEngine.start(ui.bpm)
+                        }
                     }
-                    LoopState.EMPTY -> drumEngine.stop()
+                    LoopState.EMPTY -> {
+                        drumEngine.stop()
+                        bassEngine.stop()
+                    }
                     else -> { }
                 }
             }
@@ -77,10 +88,12 @@ class JamViewModel @Inject constructor(
     fun onClearSession() {
         loopEngine.clearSession()
         drumEngine.stop()
+        bassEngine.stop()
         _uiState.update {
             it.copy(
                 drumPattern = DrumPattern.empty(),
                 drumPreset = null,
+                bassConfig = BassConfig(),
             )
         }
     }
@@ -90,17 +103,12 @@ class JamViewModel @Inject constructor(
         val newPattern = _uiState.value.drumPattern.toggleHit(instrument, step)
         _uiState.update { it.copy(drumPattern = newPattern, drumPreset = null) }
         drumEngine.pattern = newPattern
-        // Preview the sample when toggling on
         val hits = newPattern.hits[instrument]
         if (hits != null && step < hits.size && hits[step]) {
             drumEngine.previewSample(instrument)
         }
-        // If loop is playing and drums weren't running, start them
-        if (_uiState.value.loopState == LoopState.LOOPING) {
-            drumEngine.pattern = newPattern
-            if (drumEngine.currentStep.value == -1) {
-                drumEngine.start(_uiState.value.bpm, _uiState.value.barCount)
-            }
+        if (_uiState.value.loopState == LoopState.LOOPING && drumEngine.currentStep.value == -1) {
+            drumEngine.start(_uiState.value.bpm, _uiState.value.barCount)
         }
     }
 
@@ -113,10 +121,8 @@ class JamViewModel @Inject constructor(
         }
         _uiState.update { it.copy(drumPattern = preset, drumPreset = style) }
         drumEngine.pattern = preset
-        if (_uiState.value.loopState == LoopState.LOOPING) {
-            if (drumEngine.currentStep.value == -1) {
-                drumEngine.start(_uiState.value.bpm, _uiState.value.barCount)
-            }
+        if (_uiState.value.loopState == LoopState.LOOPING && drumEngine.currentStep.value == -1) {
+            drumEngine.start(_uiState.value.bpm, _uiState.value.barCount)
         }
     }
 
@@ -130,9 +136,64 @@ class JamViewModel @Inject constructor(
         _uiState.update { it.copy(drumMode = mode) }
     }
 
+    fun onDrumPadTap(instrument: DrumInstrument) {
+        drumEngine.previewSample(instrument)
+        // If looping, record the hit at the current step position
+        if (_uiState.value.loopState == LoopState.LOOPING || _uiState.value.loopState == LoopState.OVERDUBBING) {
+            val currentStep = drumEngine.currentStep.value
+            if (currentStep >= 0) {
+                val pattern = _uiState.value.drumPattern
+                val hits = pattern.hits[instrument]?.copyOf() ?: BooleanArray(pattern.totalSteps)
+                if (currentStep < hits.size) {
+                    hits[currentStep] = true
+                }
+                val newHits = pattern.hits.toMutableMap()
+                newHits[instrument] = hits
+                val newPattern = pattern.copy(hits = newHits)
+                _uiState.update { it.copy(drumPattern = newPattern, drumPreset = null) }
+                drumEngine.pattern = newPattern
+            }
+        }
+    }
+
+    // Bass controls
+    fun onBassKeyChanged(key: MusicalKey) {
+        val newConfig = _uiState.value.bassConfig.copy(key = key)
+        _uiState.update { it.copy(bassConfig = newConfig) }
+        bassEngine.config = newConfig
+    }
+
+    fun onBassPatternChanged(pattern: BassPatternType) {
+        val newConfig = _uiState.value.bassConfig.copy(pattern = pattern, enabled = true)
+        _uiState.update { it.copy(bassConfig = newConfig) }
+        bassEngine.config = newConfig
+        if (_uiState.value.loopState == LoopState.LOOPING && !bassEngine.config.enabled) {
+            bassEngine.start(_uiState.value.bpm)
+        }
+    }
+
+    fun onBassStyleChanged(style: MusicStyle) {
+        val newConfig = _uiState.value.bassConfig.copy(style = style, enabled = true)
+        _uiState.update { it.copy(bassConfig = newConfig) }
+        bassEngine.config = newConfig
+    }
+
+    fun onBassToggle() {
+        val current = _uiState.value.bassConfig
+        val newConfig = current.copy(enabled = !current.enabled)
+        _uiState.update { it.copy(bassConfig = newConfig) }
+        bassEngine.config = newConfig
+        if (!newConfig.enabled) {
+            bassEngine.stop()
+        } else if (_uiState.value.loopState == LoopState.LOOPING) {
+            bassEngine.start(_uiState.value.bpm)
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         loopEngine.clearSession()
         drumEngine.stop()
+        bassEngine.stop()
     }
 }
