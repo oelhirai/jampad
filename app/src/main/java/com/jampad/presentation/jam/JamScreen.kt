@@ -22,7 +22,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -117,6 +120,7 @@ fun JamScreen(viewModel: JamViewModel = hiltViewModel()) {
         onBassPatternChanged = viewModel::onBassPatternChanged,
         onBassStyleChanged = viewModel::onBassStyleChanged,
         onBassToggle = viewModel::onBassToggle,
+        onClearSession = viewModel::onClearSession,
     )
 }
 
@@ -140,6 +144,7 @@ private fun JamContent(
     onBassPatternChanged: (BassPatternType) -> Unit,
     onBassStyleChanged: (MusicStyle) -> Unit,
     onBassToggle: () -> Unit,
+    onClearSession: () -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -152,12 +157,9 @@ private fun JamContent(
                     )
                 },
                 actions = {
-                    Text(
-                        text = "${uiState.bpm} BPM",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(end = 8.dp),
+                    BpmControl(
+                        bpm = uiState.bpm,
+                        onBpmChanged = onBpmChanged,
                     )
                     BarCountChips(
                         selected = uiState.barCount,
@@ -230,11 +232,39 @@ private fun JamContent(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Big Button
-            BigButton(
-                loopState = uiState.loopState,
-                onClick = onBigButtonClick,
-            )
+            // Big Button + Clear
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+            ) {
+                // Clear session button — only visible when a loop exists
+                if (uiState.loopState != LoopState.EMPTY) {
+                    IconButton(
+                        onClick = onClearSession,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Clear session",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                } else {
+                    Spacer(modifier = Modifier.size(40.dp))
+                }
+
+                BigButton(
+                    loopState = uiState.loopState,
+                    onClick = onBigButtonClick,
+                )
+
+                // Spacer for symmetry
+                Spacer(modifier = Modifier.size(40.dp))
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
         }
@@ -263,6 +293,47 @@ private fun BarCountChips(
                     selectedLabelColor = MaterialTheme.colorScheme.primary,
                 ),
                 modifier = Modifier.height(28.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun BpmControl(
+    bpm: Int,
+    onBpmChanged: (Int) -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(0.dp),
+    ) {
+        IconButton(
+            onClick = { onBpmChanged(bpm - 5) },
+            modifier = Modifier.size(28.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Remove,
+                contentDescription = "Decrease BPM",
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            text = "$bpm",
+            style = MaterialTheme.typography.labelLarge,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        IconButton(
+            onClick = { onBpmChanged(bpm + 5) },
+            modifier = Modifier.size(28.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = "Increase BPM",
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -808,6 +879,7 @@ private fun JamContentPreview() {
             onBassPatternChanged = {},
             onBassStyleChanged = {},
             onBassToggle = {},
+            onClearSession = {},
         )
     }
 }
