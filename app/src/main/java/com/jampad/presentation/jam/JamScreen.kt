@@ -52,7 +52,10 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jampad.domain.model.DrumInstrument
 import com.jampad.domain.model.LoopState
+import com.jampad.domain.model.MusicStyle
+import com.jampad.presentation.common.StepSequencer
 import com.jampad.presentation.common.WaveformView
 import com.jampad.ui.theme.BassPurple
 import com.jampad.ui.theme.DrumsCyan
@@ -65,6 +68,7 @@ fun JamScreen(viewModel: JamViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val waveform by viewModel.waveformSamples.collectAsStateWithLifecycle()
     val progress by viewModel.playbackProgress.collectAsStateWithLifecycle()
+    val drumStep by viewModel.drumCurrentStep.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     var hasPermission by rememberSaveable {
@@ -88,6 +92,7 @@ fun JamScreen(viewModel: JamViewModel = hiltViewModel()) {
         uiState = uiState,
         waveformSamples = waveform,
         playbackProgress = progress,
+        drumCurrentStep = drumStep,
         onTabSelected = viewModel::onTabSelected,
         onBpmChanged = viewModel::onBpmChanged,
         onBarCountChanged = viewModel::onBarCountChanged,
@@ -98,6 +103,9 @@ fun JamScreen(viewModel: JamViewModel = hiltViewModel()) {
                 viewModel.onBigButtonPress()
             }
         },
+        onToggleDrumHit = viewModel::onToggleDrumHit,
+        onLoadDrumPreset = viewModel::onLoadDrumPreset,
+        onClearDrumPattern = viewModel::onClearDrumPattern,
     )
 }
 
@@ -107,10 +115,14 @@ private fun JamContent(
     uiState: JamUiState,
     waveformSamples: FloatArray,
     playbackProgress: Float,
+    drumCurrentStep: Int,
     onTabSelected: (JamTab) -> Unit,
     onBpmChanged: (Int) -> Unit,
     onBarCountChanged: (Int) -> Unit,
     onBigButtonClick: () -> Unit,
+    onToggleDrumHit: (DrumInstrument, Int) -> Unit,
+    onLoadDrumPreset: (MusicStyle) -> Unit,
+    onClearDrumPattern: () -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -177,6 +189,12 @@ private fun JamContent(
             ContextualArea(
                 tab = uiState.selectedTab,
                 loopState = uiState.loopState,
+                drumPattern = uiState.drumPattern,
+                drumCurrentStep = drumCurrentStep,
+                drumPreset = uiState.drumPreset,
+                onToggleDrumHit = onToggleDrumHit,
+                onLoadDrumPreset = onLoadDrumPreset,
+                onClearDrumPattern = onClearDrumPattern,
                 modifier = Modifier.weight(1f),
             )
 
@@ -307,6 +325,12 @@ private fun LayerTabs(
 private fun ContextualArea(
     tab: JamTab,
     loopState: LoopState,
+    drumPattern: com.jampad.domain.model.DrumPattern,
+    drumCurrentStep: Int,
+    drumPreset: MusicStyle?,
+    onToggleDrumHit: (DrumInstrument, Int) -> Unit,
+    onLoadDrumPreset: (MusicStyle) -> Unit,
+    onClearDrumPattern: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -314,23 +338,119 @@ private fun ContextualArea(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surface),
-        contentAlignment = Alignment.Center,
     ) {
-        val text = when (tab) {
-            JamTab.GUITAR -> when (loopState) {
-                LoopState.EMPTY -> "Set BPM and bar count, then hit REC"
-                LoopState.RECORDING -> "Play your riff..."
-                LoopState.LOOPING -> "Tap OVERDUB to layer more guitar"
-                LoopState.OVERDUBBING -> "Playing over the loop..."
+        when (tab) {
+            JamTab.GUITAR -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = when (loopState) {
+                            LoopState.EMPTY -> "Set BPM and bar count, then hit REC"
+                            LoopState.RECORDING -> "Play your riff..."
+                            LoopState.LOOPING -> "Tap OVERDUB to layer more guitar"
+                            LoopState.OVERDUBBING -> "Playing over the loop..."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-            JamTab.DRUMS -> "Drum pad — coming in M4"
-            JamTab.BASS -> "Bass generator — coming in M6"
+            JamTab.DRUMS -> {
+                DrumControlArea(
+                    pattern = drumPattern,
+                    currentStep = drumCurrentStep,
+                    selectedPreset = drumPreset,
+                    onToggleHit = onToggleDrumHit,
+                    onLoadPreset = onLoadDrumPreset,
+                    onClear = onClearDrumPattern,
+                )
+            }
+            JamTab.BASS -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "Bass generator — coming in M6",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
-        Text(
-            text = text,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+    }
+}
+
+@Composable
+private fun DrumControlArea(
+    pattern: com.jampad.domain.model.DrumPattern,
+    currentStep: Int,
+    selectedPreset: MusicStyle?,
+    onToggleHit: (DrumInstrument, Int) -> Unit,
+    onLoadPreset: (MusicStyle) -> Unit,
+    onClear: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(12.dp),
+    ) {
+        // Sequencer grid
+        StepSequencer(
+            pattern = pattern,
+            currentStep = currentStep,
+            onToggleHit = onToggleHit,
+            modifier = Modifier.weight(1f),
         )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Preset chips
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Preset:",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            MusicStyle.entries.forEach { style ->
+                FilterChip(
+                    selected = selectedPreset == style,
+                    onClick = { onLoadPreset(style) },
+                    label = {
+                        Text(
+                            text = when (style) {
+                                MusicStyle.FUNK -> "Funk"
+                                MusicStyle.LO_FI -> "Lo-fi"
+                                MusicStyle.ROCK -> "Rock"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = DrumsCyan.copy(alpha = 0.2f),
+                        selectedLabelColor = DrumsCyan,
+                    ),
+                    modifier = Modifier.height(28.dp),
+                )
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            FilterChip(
+                selected = false,
+                onClick = onClear,
+                label = {
+                    Text(
+                        text = "Clear",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                },
+                modifier = Modifier.height(28.dp),
+            )
+        }
     }
 }
 
@@ -450,10 +570,14 @@ private fun JamContentPreview() {
             uiState = JamUiState(),
             waveformSamples = floatArrayOf(),
             playbackProgress = 0f,
+            drumCurrentStep = -1,
             onTabSelected = {},
             onBpmChanged = {},
             onBarCountChanged = {},
             onBigButtonClick = {},
+            onToggleDrumHit = { _, _ -> },
+            onLoadDrumPreset = {},
+            onClearDrumPattern = {},
         )
     }
 }

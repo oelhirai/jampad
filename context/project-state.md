@@ -11,7 +11,7 @@
 
 ## Current Phase
 
-**Phase 3 — Tempo & Key Detection** `⬜ Pending`
+**Phase 4 — Drum Step Sequencer** `✅ Done`
 
 ---
 
@@ -23,7 +23,7 @@
 | M1 | Foundation (dark theme, Hilt, permissions) | ✅ Done | ⬜ | Bundled with M0 scaffold |
 | M2 | Audio loop engine | ✅ Done | ⬜ | Record, loop, overdub, waveform, playhead verified on device |
 | M3 | Tempo & key detection | ⬜ Pending | ⬜ | Auto BPM, tap-tempo, pitch detection |
-| M4 | Drum step sequencer | ⬜ Pending | ⬜ | Grid UI, samples, presets |
+| M4 | Drum step sequencer | ✅ Done | ⬜ | Grid UI, synth samples, presets, verified on device |
 | M5 | Drum tap pads | ⬜ Pending | ⬜ | MPC pads, quantize, toggle |
 | M6 | Bass generator | ⬜ Pending | ⬜ | Pattern styles, key-aware |
 | M7 | Mixer & layering | ⬜ Pending | ⬜ | 3-channel mix, volume, mute |
