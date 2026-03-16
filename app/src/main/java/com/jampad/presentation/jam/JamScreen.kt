@@ -319,13 +319,24 @@ private fun BpmControl(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Text(
-            text = "$bpm",
-            style = MaterialTheme.typography.labelLarge,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = "$bpm",
+                style = MaterialTheme.typography.labelLarge,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                lineHeight = MaterialTheme.typography.labelLarge.lineHeight,
+            )
+            Text(
+                text = "BPM",
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            )
+        }
         IconButton(
             onClick = { onBpmChanged(bpm + 5) },
             modifier = Modifier.size(28.dp),
