@@ -22,6 +22,15 @@ The Big Button at the bottom drives the primary state machine:
 - **Looping** → Tap to overdub another guitar layer
 - **Overdubbing** → Tap to stop overdub and return to looping
 
+**Two paths to BPM (M3):**
+- **Free-record (default):** Just hit record with no BPM set. The app detects BPM from
+  your recording after you stop. Loop length = whatever you played. Detected BPM is used
+  as a tempo label for drums/bass sync. Adjust the label manually if detection was off.
+- **Tap-tempo:** Tap out the beat first to set BPM, then record a fixed-bar loop (4/8/16).
+
+Changing BPM after recording only adjusts the drums/bass sync reference — it never
+re-cuts or re-trims the guitar audio.
+
 The loop never stops once it starts. You interact with different zones of the screen
 (waveform, drums, bass, mixer) while the music keeps playing.
 
@@ -108,7 +117,8 @@ makes accent colors pop.
 ```
 
 **Key elements:**
-- Header bar: BPM (tap to edit via tap-tempo or manual), bar count chips (4/8/16), settings gear
+- Header bar: BPM display (shows "—" before detection, then detected/set value), tap-tempo button, bar count chips (4/8/16, only relevant in tap-tempo path), settings gear
+- BPM display: tap to manually adjust ± after detection. Label-only — never re-cuts audio.
 - Waveform strip: guitar loop visualization with sweeping playhead and beat markers
 - Layer tabs: Guitar / Drums / Bass — swap the contextual control area
 - Mini mixer: always-visible volume sliders + mute per layer
@@ -299,7 +309,7 @@ data class MixState(
 | 0 | Scaffold & AI workflow | Project builds, context files written |
 | 1 | Foundation | Dark theme, Hilt, audio permissions, project skeleton |
 | 2 | Audio loop engine | Record guitar, fixed-bar loop playback, waveform display |
-| 3 | Tempo & key detection | Auto BPM + tap-tempo, pitch detection, manual override |
+| 3 | Tempo & key detection | Free-record + auto-detect BPM, tap-tempo, pitch detection, manual adjust (label-only) |
 | 4 | Drum step sequencer | Grid UI, sample playback, preset patterns (funk/lo-fi/rock) |
 | 5 | Drum tap pads | MPC-style pads, quantization, sequencer ↔ pad toggle |
 | 6 | Bass generator | Pattern styles, key-aware generation, sample playback |

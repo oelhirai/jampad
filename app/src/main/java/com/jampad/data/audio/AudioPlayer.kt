@@ -15,6 +15,12 @@ class AudioPlayer @Inject constructor() {
     private var audioTrack: AudioTrack? = null
     private var isPlaying = false
 
+    var volume: Float = 0.8f
+        set(value) {
+            field = value
+            audioTrack?.setVolume(value)
+        }
+
     fun start(): Boolean {
         if (isPlaying) return false
         return try {
@@ -41,7 +47,10 @@ class AudioPlayer @Inject constructor() {
                 .setBufferSizeInBytes(bufferSize)
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .build()
-                .also { it.play() }
+                .also {
+                    it.play()
+                    it.setVolume(volume)
+                }
 
             isPlaying = true
             true

@@ -27,6 +27,12 @@ class BassEngine @Inject constructor() {
     private var audioTrack: AudioTrack? = null
     private var isPlaying = false
 
+    var volume: Float = 0.6f
+        set(value) {
+            field = value
+            audioTrack?.setVolume(value)
+        }
+
     @Volatile
     var config: BassConfig = BassConfig()
 
@@ -57,7 +63,10 @@ class BassEngine @Inject constructor() {
             .setBufferSizeInBytes(bufferSize)
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
-            .also { it.play() }
+            .also {
+                it.play()
+                it.setVolume(volume)
+            }
 
         playJob = scope.launch {
             playLoop(bpm)

@@ -14,3 +14,16 @@ enum class MusicalKey(val displayName: String) {
     A_SHARP("A#"),
     B("B"),
 }
+
+enum class ScaleMode(val displayName: String) {
+    MAJOR("Major"),
+    MINOR("Minor"),
+}
+
+data class DetectedKey(
+    val root: MusicalKey,
+    val mode: ScaleMode,
+) {
+    val displayName: String
+        get() = "${root.displayName} ${mode.displayName}"
+}

@@ -1,6 +1,7 @@
 package com.jampad.data.audio
 
 import com.jampad.domain.model.LoopState
+import com.jampad.domain.model.RecordingMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,6 +34,8 @@ class LoopEngine @Inject constructor(
     private var recordingBuffer = mutableListOf<Short>()
     private var recordJob: Job? = null
     private var playJob: Job? = null
+
+    var recordingMode: RecordingMode = RecordingMode.FREE
 
     private var bpm: Int = 120
     private var barCount: Int = 4
@@ -81,15 +84,21 @@ class LoopEngine @Inject constructor(
         recordJob?.cancel()
         recordJob = null
 
-        val targetLength = getLoopLengthSamples()
         synchronized(recordingBuffer) {
-            loopBuffer = if (recordingBuffer.size >= targetLength) {
-                recordingBuffer.take(targetLength).toShortArray()
-            } else {
-                // Pad with silence if recording is shorter than loop length
-                val padded = ShortArray(targetLength)
-                recordingBuffer.forEachIndexed { i, s -> padded[i] = s }
-                padded
+            loopBuffer = when (recordingMode) {
+                RecordingMode.FREE -> {
+                    recordingBuffer.toShortArray()
+                }
+                RecordingMode.FIXED -> {
+                    val targetLength = getLoopLengthSamples()
+                    if (recordingBuffer.size >= targetLength) {
+                        recordingBuffer.take(targetLength).toShortArray()
+                    } else {
+                        val padded = ShortArray(targetLength)
+                        recordingBuffer.forEachIndexed { i, s -> padded[i] = s }
+                        padded
+                    }
+                }
             }
         }
 
@@ -150,6 +159,14 @@ class LoopEngine @Inject constructor(
         _loopState.value = LoopState.LOOPING
     }
 
+    fun setVolume(volume: Float) {
+        player.volume = volume
+    }
+
+    fun getRecordedAudio(): ShortArray? = loopBuffer?.copyOf()
+
+    fun getLoopDurationSamples(): Int = loopBuffer?.size ?: 0
+
     fun clearSession() {
         recorder.stop()
         player.stop()
@@ -159,6 +176,7 @@ class LoopEngine @Inject constructor(
         playJob = null
         loopBuffer = null
         recordingBuffer.clear()
+        recordingMode = RecordingMode.FREE
         _loopState.value = LoopState.EMPTY
         _playbackProgress.value = 0f
         _waveformSamples.value = floatArrayOf()

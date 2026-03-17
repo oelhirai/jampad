@@ -18,15 +18,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -48,6 +53,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -59,10 +65,13 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jampad.domain.model.BassPatternType
+import com.jampad.domain.model.BpmSource
+import com.jampad.domain.model.DetectedKey
 import com.jampad.domain.model.DrumInstrument
 import com.jampad.domain.model.LoopState
 import com.jampad.domain.model.MusicalKey
 import com.jampad.domain.model.MusicStyle
+import com.jampad.domain.model.RecordingMode
 import com.jampad.presentation.common.DrumPads
 import com.jampad.presentation.common.StepSequencer
 import com.jampad.presentation.common.WaveformView
@@ -105,6 +114,8 @@ fun JamScreen(viewModel: JamViewModel = hiltViewModel()) {
         onTabSelected = viewModel::onTabSelected,
         onBpmChanged = viewModel::onBpmChanged,
         onBarCountChanged = viewModel::onBarCountChanged,
+        onTapTempo = viewModel::onTapTempo,
+        onKeyOverride = viewModel::onKeyOverride,
         onBigButtonClick = {
             if (!hasPermission && uiState.loopState == LoopState.EMPTY) {
                 permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
@@ -121,6 +132,12 @@ fun JamScreen(viewModel: JamViewModel = hiltViewModel()) {
         onBassPatternChanged = viewModel::onBassPatternChanged,
         onBassStyleChanged = viewModel::onBassStyleChanged,
         onBassToggle = viewModel::onBassToggle,
+        onGuitarVolumeChange = viewModel::onGuitarVolumeChange,
+        onDrumsVolumeChange = viewModel::onDrumsVolumeChange,
+        onBassVolumeChange = viewModel::onBassVolumeChange,
+        onGuitarMuteToggle = viewModel::onGuitarMuteToggle,
+        onDrumsMuteToggle = viewModel::onDrumsMuteToggle,
+        onBassMuteToggle = viewModel::onBassMuteToggle,
         onClearSession = viewModel::onClearSession,
     )
 }
@@ -135,6 +152,8 @@ private fun JamContent(
     onTabSelected: (JamTab) -> Unit,
     onBpmChanged: (Int) -> Unit,
     onBarCountChanged: (Int) -> Unit,
+    onTapTempo: () -> Unit,
+    onKeyOverride: (MusicalKey) -> Unit,
     onBigButtonClick: () -> Unit,
     onToggleDrumHit: (DrumInstrument, Int) -> Unit,
     onLoadDrumPreset: (MusicStyle) -> Unit,
@@ -145,6 +164,12 @@ private fun JamContent(
     onBassPatternChanged: (BassPatternType) -> Unit,
     onBassStyleChanged: (MusicStyle) -> Unit,
     onBassToggle: () -> Unit,
+    onGuitarVolumeChange: (Float) -> Unit,
+    onDrumsVolumeChange: (Float) -> Unit,
+    onBassVolumeChange: (Float) -> Unit,
+    onGuitarMuteToggle: () -> Unit,
+    onDrumsMuteToggle: () -> Unit,
+    onBassMuteToggle: () -> Unit,
     onClearSession: () -> Unit,
 ) {
     Scaffold(
@@ -153,19 +178,24 @@ private fun JamContent(
                 title = {
                     Text(
                         text = "JamPad",
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
+                        maxLines = 1,
                     )
                 },
                 actions = {
                     BpmControl(
                         bpm = uiState.bpm,
+                        bpmSource = uiState.bpmSource,
                         onBpmChanged = onBpmChanged,
+                        onTapTempo = onTapTempo,
                     )
-                    BarCountChips(
-                        selected = uiState.barCount,
-                        onSelected = onBarCountChanged,
-                    )
+                    if (uiState.recordingMode == RecordingMode.FIXED) {
+                        BarCountChips(
+                            selected = uiState.barCount,
+                            onSelected = onBarCountChanged,
+                        )
+                    }
                     IconButton(onClick = { /* Settings — M10 */ }) {
                         Icon(
                             imageVector = Icons.Default.Settings,
@@ -192,7 +222,7 @@ private fun JamContent(
                 loopState = uiState.loopState,
                 waveformSamples = waveformSamples,
                 playbackProgress = playbackProgress,
-                beatCount = uiState.barCount * 4,
+                beatCount = uiState.beatCount,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -209,6 +239,11 @@ private fun JamContent(
             ContextualArea(
                 tab = uiState.selectedTab,
                 loopState = uiState.loopState,
+                recordingMode = uiState.recordingMode,
+                bpm = uiState.bpm,
+                bpmSource = uiState.bpmSource,
+                detectedKey = uiState.detectedKey,
+                isDetecting = uiState.isDetecting,
                 drumPattern = uiState.drumPattern,
                 drumCurrentStep = drumCurrentStep,
                 drumPreset = uiState.drumPreset,
@@ -223,13 +258,22 @@ private fun JamContent(
                 onBassPatternChanged = onBassPatternChanged,
                 onBassStyleChanged = onBassStyleChanged,
                 onBassToggle = onBassToggle,
+                onKeyOverride = onKeyOverride,
                 modifier = Modifier.weight(1f),
             )
 
             Spacer(modifier = Modifier.height(12.dp))
 
             // Mini mixer
-            MiniMixer(mixState = uiState.mixState)
+            MiniMixer(
+                mixState = uiState.mixState,
+                onGuitarVolumeChange = onGuitarVolumeChange,
+                onDrumsVolumeChange = onDrumsVolumeChange,
+                onBassVolumeChange = onBassVolumeChange,
+                onGuitarMuteToggle = onGuitarMuteToggle,
+                onDrumsMuteToggle = onDrumsMuteToggle,
+                onBassMuteToggle = onBassMuteToggle,
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -302,14 +346,35 @@ private fun BarCountChips(
 @Composable
 private fun BpmControl(
     bpm: Int,
+    bpmSource: BpmSource,
     onBpmChanged: (Int) -> Unit,
+    onTapTempo: () -> Unit,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(0.dp),
     ) {
+        // TAP button
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .clickable(onClick = onTapTempo)
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+        ) {
+            Text(
+                text = "TAP",
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        Spacer(modifier = Modifier.width(6.dp))
+
         IconButton(
-            onClick = { onBpmChanged(bpm - 5) },
+            onClick = { onBpmChanged(bpm - 1) },
             modifier = Modifier.size(28.dp),
         ) {
             Icon(
@@ -323,7 +388,7 @@ private fun BpmControl(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                text = "$bpm",
+                text = if (bpmSource == BpmSource.NONE) "\u2014" else "$bpm",
                 style = MaterialTheme.typography.labelLarge,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
@@ -331,14 +396,19 @@ private fun BpmControl(
                 lineHeight = MaterialTheme.typography.labelLarge.lineHeight,
             )
             Text(
-                text = "BPM",
+                text = when (bpmSource) {
+                    BpmSource.NONE -> "BPM"
+                    BpmSource.AUTO_DETECTED -> "detected"
+                    BpmSource.TAP_TEMPO -> "tap"
+                    BpmSource.MANUAL -> "manual"
+                },
                 style = MaterialTheme.typography.labelSmall,
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
             )
         }
         IconButton(
-            onClick = { onBpmChanged(bpm + 5) },
+            onClick = { onBpmChanged(bpm + 1) },
             modifier = Modifier.size(28.dp),
         ) {
             Icon(
@@ -433,6 +503,11 @@ private fun LayerTabs(
 private fun ContextualArea(
     tab: JamTab,
     loopState: LoopState,
+    recordingMode: RecordingMode,
+    bpm: Int,
+    bpmSource: BpmSource,
+    detectedKey: DetectedKey?,
+    isDetecting: Boolean,
     drumPattern: com.jampad.domain.model.DrumPattern,
     drumCurrentStep: Int,
     drumPreset: MusicStyle?,
@@ -447,6 +522,7 @@ private fun ContextualArea(
     onBassPatternChanged: (BassPatternType) -> Unit,
     onBassStyleChanged: (MusicStyle) -> Unit,
     onBassToggle: () -> Unit,
+    onKeyOverride: (MusicalKey) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -457,21 +533,15 @@ private fun ContextualArea(
     ) {
         when (tab) {
             JamTab.GUITAR -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = when (loopState) {
-                            LoopState.EMPTY -> "Set BPM and bar count, then hit REC"
-                            LoopState.RECORDING -> "Play your riff..."
-                            LoopState.LOOPING -> "Tap OVERDUB to layer more guitar"
-                            LoopState.OVERDUBBING -> "Playing over the loop..."
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                GuitarTabContent(
+                    loopState = loopState,
+                    recordingMode = recordingMode,
+                    bpm = bpm,
+                    bpmSource = bpmSource,
+                    detectedKey = detectedKey,
+                    isDetecting = isDetecting,
+                    onKeyOverride = onKeyOverride,
+                )
             }
             JamTab.DRUMS -> {
                 DrumControlArea(
@@ -496,6 +566,153 @@ private fun ContextualArea(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun GuitarTabContent(
+    loopState: LoopState,
+    recordingMode: RecordingMode,
+    bpm: Int,
+    bpmSource: BpmSource,
+    detectedKey: DetectedKey?,
+    isDetecting: Boolean,
+    onKeyOverride: (MusicalKey) -> Unit,
+) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        when {
+            isDetecting -> {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp,
+                        color = GuitarAmber,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Detecting tempo & key...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            loopState == LoopState.EMPTY -> {
+                Text(
+                    text = if (recordingMode == RecordingMode.FREE) {
+                        "Just hit REC and play"
+                    } else {
+                        "Set tempo with TAP, then REC"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            loopState == LoopState.RECORDING -> {
+                Text(
+                    text = "Playing your riff...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            detectedKey != null -> {
+                GuitarDetectionInfo(
+                    detectedKey = detectedKey,
+                    bpm = bpm,
+                    bpmSource = bpmSource,
+                    onKeyOverride = onKeyOverride,
+                )
+            }
+            else -> {
+                Text(
+                    text = when (loopState) {
+                        LoopState.LOOPING -> "Tap OVERDUB to layer more guitar"
+                        LoopState.OVERDUBBING -> "Playing over the loop..."
+                        else -> ""
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GuitarDetectionInfo(
+    detectedKey: DetectedKey,
+    bpm: Int,
+    bpmSource: BpmSource,
+    onKeyOverride: (MusicalKey) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        // Key display with edit
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Key: ",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            var keyExpanded by remember { mutableStateOf(false) }
+            Box {
+                Row(
+                    modifier = Modifier.clickable { keyExpanded = true },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = detectedKey.displayName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = GuitarAmber,
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Edit key",
+                        modifier = Modifier.size(14.dp),
+                        tint = GuitarAmber.copy(alpha = 0.6f),
+                    )
+                }
+                DropdownMenu(
+                    expanded = keyExpanded,
+                    onDismissRequest = { keyExpanded = false },
+                ) {
+                    MusicalKey.entries.forEach { key ->
+                        DropdownMenuItem(
+                            text = { Text(key.displayName) },
+                            onClick = {
+                                onKeyOverride(key)
+                                keyExpanded = false
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // BPM with source label
+        val sourceLabel = when (bpmSource) {
+            BpmSource.AUTO_DETECTED -> "(detected)"
+            BpmSource.TAP_TEMPO -> "(tap)"
+            BpmSource.MANUAL -> "(manual)"
+            BpmSource.NONE -> ""
+        }
+        Text(
+            text = "$bpm BPM $sourceLabel",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -772,7 +989,15 @@ private fun BassControlArea(
 }
 
 @Composable
-private fun MiniMixer(mixState: com.jampad.domain.model.MixState) {
+private fun MiniMixer(
+    mixState: com.jampad.domain.model.MixState,
+    onGuitarVolumeChange: (Float) -> Unit,
+    onDrumsVolumeChange: (Float) -> Unit,
+    onBassVolumeChange: (Float) -> Unit,
+    onGuitarMuteToggle: () -> Unit,
+    onDrumsMuteToggle: () -> Unit,
+    onBassMuteToggle: () -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -782,7 +1007,8 @@ private fun MiniMixer(mixState: com.jampad.domain.model.MixState) {
             value = mixState.guitarVolume,
             color = GuitarAmber,
             muted = mixState.guitarMuted,
-            onValueChange = {},
+            onValueChange = onGuitarVolumeChange,
+            onMuteToggle = onGuitarMuteToggle,
             modifier = Modifier.weight(1f),
         )
         MixerSlider(
@@ -790,7 +1016,8 @@ private fun MiniMixer(mixState: com.jampad.domain.model.MixState) {
             value = mixState.drumsVolume,
             color = DrumsCyan,
             muted = mixState.drumsMuted,
-            onValueChange = {},
+            onValueChange = onDrumsVolumeChange,
+            onMuteToggle = onDrumsMuteToggle,
             modifier = Modifier.weight(1f),
         )
         MixerSlider(
@@ -798,7 +1025,8 @@ private fun MiniMixer(mixState: com.jampad.domain.model.MixState) {
             value = mixState.bassVolume,
             color = BassPurple,
             muted = mixState.bassMuted,
-            onValueChange = {},
+            onValueChange = onBassVolumeChange,
+            onMuteToggle = onBassMuteToggle,
             modifier = Modifier.weight(1f),
         )
     }
@@ -811,23 +1039,25 @@ private fun MixerSlider(
     color: Color,
     muted: Boolean,
     onValueChange: (Float) -> Unit,
+    onMuteToggle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier,
+        modifier = modifier.alpha(if (muted) 0.4f else 1f),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = if (muted) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f) else color,
+            color = color,
+            modifier = Modifier.clickable(onClick = onMuteToggle),
         )
         Slider(
             value = value,
             onValueChange = onValueChange,
             colors = SliderDefaults.colors(
-                thumbColor = if (muted) color.copy(alpha = 0.4f) else color,
-                activeTrackColor = if (muted) color.copy(alpha = 0.4f) else color,
+                thumbColor = color,
+                activeTrackColor = color,
                 inactiveTrackColor = color.copy(alpha = 0.1f),
             ),
         )
@@ -891,6 +1121,8 @@ private fun JamContentPreview() {
             onTabSelected = {},
             onBpmChanged = {},
             onBarCountChanged = {},
+            onTapTempo = {},
+            onKeyOverride = {},
             onBigButtonClick = {},
             onToggleDrumHit = { _, _ -> },
             onLoadDrumPreset = {},
@@ -901,6 +1133,12 @@ private fun JamContentPreview() {
             onBassPatternChanged = {},
             onBassStyleChanged = {},
             onBassToggle = {},
+            onGuitarVolumeChange = {},
+            onDrumsVolumeChange = {},
+            onBassVolumeChange = {},
+            onGuitarMuteToggle = {},
+            onDrumsMuteToggle = {},
+            onBassMuteToggle = {},
             onClearSession = {},
         )
     }

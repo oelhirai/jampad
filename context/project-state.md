@@ -11,7 +11,7 @@
 
 ## Current Phase
 
-**Phase 6 — Bass Generator** `✅ Done`
+**Phase M7 — Mixer & Layering** `✅ Done`
 
 ---
 
@@ -22,11 +22,11 @@
 | M0 | Scaffold & AI workflow | ✅ Done | ⬜ | Clean build verified |
 | M1 | Foundation (dark theme, Hilt, permissions) | ✅ Done | ⬜ | Bundled with M0 scaffold |
 | M2 | Audio loop engine | ✅ Done | ⬜ | Record, loop, overdub, waveform, playhead verified on device |
-| M3 | Tempo & key detection | ⬜ Pending | ⬜ | Auto BPM, tap-tempo, pitch detection |
+| M3 | Tempo & key detection | ✅ Done | ⬜ | Free-record + auto-detect BPM, tap-tempo, pitch detection |
 | M4 | Drum step sequencer | ✅ Done | ⬜ | Grid UI, synth samples, presets, verified on device |
 | M5 | Drum tap pads | ✅ Done | ⬜ | MPC pads, mode toggle, haptic feedback, live recording |
 | M6 | Bass generator | ✅ Done | ⬜ | Sine synth, 5 patterns, key selector, style chips |
-| M7 | Mixer & layering | ⬜ Pending | ⬜ | 3-channel mix, volume, mute |
+| M7 | Mixer & layering | ✅ Done | ⬜ | 3-channel mix, volume, mute |
 | M8 | Export | ⬜ Pending | ⬜ | WAV/MP3 mixdown, share |
 | M9 | Session persistence | ⬜ Pending | ⬜ | Save/load via Room |
 | M10 | Polish & release | ⬜ Pending | ⬜ | Icons, onboarding, Play Store |
@@ -48,7 +48,7 @@
 | Navigation | Navigation Compose | ✅ Locked |
 | Audio recording | AudioRecord (PCM access) | ✅ Locked |
 | Audio playback | Oboe (low-latency, C++ via JNI) | ⬜ TBD — evaluate vs AudioTrack in M2 |
-| Pitch detection | TarsosDSP (YIN algorithm) | ⬜ TBD — evaluate in M3 |
+| Pitch detection | Pure Kotlin YIN algorithm | ✅ Locked |
 | Drum/bass sounds | Pre-recorded WAV samples | ✅ Locked |
 | Export format | WAV + MP3 (via MediaCodec) | ✅ Locked |
 | Local DB | Room (deferred to M9) | ✅ Locked |
@@ -114,17 +114,31 @@ The core recording and playback loop — no detection, no layers yet.
 Deliverable: record a guitar riff, hear it loop seamlessly, see the waveform with playhead.
 
 ### M3 — Tempo & Key Detection
-Make the app smart about what you played.
+Make the app smart about what you played. Two paths to BPM:
 
-- [ ] BPM auto-detection (onset detection + autocorrelation on recorded audio)
-- [ ] Tap-tempo: tap Big Button rhythmically before recording to set BPM
-- [ ] Manual BPM entry (tap BPM display → number input)
+**Path A — Free-record + auto-detect (new default):**
+- [ ] Allow recording without a preset BPM (skip bar-count selection)
+- [ ] Loop length = whatever the user recorded (no trimming to bar boundaries)
+- [ ] BPM auto-detection on recorded audio (onset detection + autocorrelation)
+- [ ] Set detected BPM as the tempo label for drums/bass sync
+- [ ] Manual BPM adjustment after detection (label-only — never re-cuts audio)
+
+**Path B — Tap-tempo (existing fixed-bar flow):**
+- [ ] Tap-tempo: tap a button rhythmically to set BPM before recording
+- [ ] Once BPM is set via tap-tempo, record a fixed-bar loop (4/8/16 bars) as in M2
+
+**Shared:**
+- [ ] Manual BPM ± adjustment always available (affects drums/bass sync only)
 - [ ] Monophonic pitch detection via TarsosDSP (YIN algorithm)
 - [ ] Key estimation from detected pitches (most likely key/scale)
 - [ ] Guitar tab: display detected key, tempo, simplified note visualization
 - [ ] Manual key override (dropdown)
 
-Deliverable: record a riff, app detects ~correct BPM and key, displays in Guitar tab.
+**Design note:** Changing BPM after recording (whether auto-detected or tap-tempo) only
+adjusts the tempo reference for drums/bass alignment. It never re-cuts or re-trims the
+guitar audio.
+
+Deliverable: record a riff with no setup, app detects BPM and key, drums/bass sync to detected tempo. Alternatively, tap-tempo first for a more structured session.
 
 ### M4 — Drum Step Sequencer
 First half of the drum machine.

@@ -29,6 +29,12 @@ class DrumEngine @Inject constructor() {
     private val samples = mutableMapOf<DrumInstrument, ShortArray>()
     private var isPlaying = false
 
+    var volume: Float = 0.7f
+        set(value) {
+            field = value
+            audioTrack?.setVolume(value)
+        }
+
     private val _currentStep = MutableStateFlow(-1)
     val currentStep: StateFlow<Int> = _currentStep.asStateFlow()
 
@@ -73,7 +79,10 @@ class DrumEngine @Inject constructor() {
             .setBufferSizeInBytes(bufferSize)
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
-            .also { it.play() }
+            .also {
+                it.play()
+                it.setVolume(volume)
+            }
 
         playJob = scope.launch {
             playLoop(bpm)
