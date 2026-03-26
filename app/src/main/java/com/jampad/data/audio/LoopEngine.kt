@@ -30,7 +30,11 @@ class LoopEngine @Inject constructor(
     private val _waveformSamples = MutableStateFlow(floatArrayOf())
     val waveformSamples: StateFlow<FloatArray> = _waveformSamples.asStateFlow()
 
+    private val _fullRecordingWaveform = MutableStateFlow(floatArrayOf())
+    val fullRecordingWaveform: StateFlow<FloatArray> = _fullRecordingWaveform.asStateFlow()
+
     private var loopBuffer: ShortArray? = null
+    private var fullRecording: ShortArray? = null
     private var recordingBuffer = mutableListOf<Short>()
     private var recordJob: Job? = null
     private var playJob: Job? = null
@@ -50,6 +54,12 @@ class LoopEngine @Inject constructor(
         val totalBeats = beatsPerBar * barCount
         val secondsPerBeat = 60.0 / bpm
         val totalSeconds = totalBeats * secondsPerBeat
+        return (totalSeconds * AudioRecorder.SAMPLE_RATE).toInt()
+    }
+
+    fun getWindowLengthSamples(bpm: Int, barCount: Int): Int {
+        val totalBeats = 4 * barCount
+        val totalSeconds = totalBeats * 60.0 / bpm
         return (totalSeconds * AudioRecorder.SAMPLE_RATE).toInt()
     }
 
@@ -85,17 +95,22 @@ class LoopEngine @Inject constructor(
         recordJob = null
 
         synchronized(recordingBuffer) {
+            // Always save the full recording for align-to-grid
+            val raw = recordingBuffer.toShortArray()
+            fullRecording = raw
+            _fullRecordingWaveform.value = downsampleToFloats(raw, 400)
+
             loopBuffer = when (recordingMode) {
                 RecordingMode.FREE -> {
-                    recordingBuffer.toShortArray()
+                    raw.copyOf()
                 }
                 RecordingMode.FIXED -> {
                     val targetLength = getLoopLengthSamples()
-                    if (recordingBuffer.size >= targetLength) {
-                        recordingBuffer.take(targetLength).toShortArray()
+                    if (raw.size >= targetLength) {
+                        raw.copyOfRange(0, targetLength)
                     } else {
                         val padded = ShortArray(targetLength)
-                        recordingBuffer.forEachIndexed { i, s -> padded[i] = s }
+                        raw.copyInto(padded)
                         padded
                     }
                 }
@@ -167,6 +182,27 @@ class LoopEngine @Inject constructor(
 
     fun getLoopDurationSamples(): Int = loopBuffer?.size ?: 0
 
+    fun getFullRecordingLengthSamples(): Int = fullRecording?.size ?: 0
+
+    fun alignLoop(offsetFraction: Float, bpm: Int, barCount: Int) {
+        val full = fullRecording ?: return
+        val windowLength = getWindowLengthSamples(bpm, barCount)
+        if (windowLength > full.size) return
+
+        val scrollableRange = full.size - windowLength
+        val startSample = (offsetFraction * scrollableRange).toInt().coerceIn(0, scrollableRange)
+        val endSample = startSample + windowLength
+
+        // Stop playback, replace buffer, restart
+        player.stop()
+        playJob?.cancel()
+        playJob = null
+
+        loopBuffer = full.copyOfRange(startSample, endSample)
+        updateWaveformFromLoop()
+        startPlayback()
+    }
+
     fun clearSession() {
         recorder.stop()
         player.stop()
@@ -175,11 +211,13 @@ class LoopEngine @Inject constructor(
         recordJob = null
         playJob = null
         loopBuffer = null
+        fullRecording = null
         recordingBuffer.clear()
         recordingMode = RecordingMode.FREE
         _loopState.value = LoopState.EMPTY
         _playbackProgress.value = 0f
         _waveformSamples.value = floatArrayOf()
+        _fullRecordingWaveform.value = floatArrayOf()
     }
 
     private fun updateLiveWaveform() {

@@ -25,6 +25,12 @@ data class JamUiState(
     val detectedKey: DetectedKey? = null,
     val isDetecting: Boolean = false,
     val loopLengthSamples: Int = 0,
+    val metronomeEnabled: Boolean = false,
+    val isAligning: Boolean = false,
+    val alignOffset: Float = 0f,
+    val alignBarCount: Int = 4,
+    val maxAlignBarCount: Int = 16,
+    val fullRecordingLengthSamples: Int = 0,
 ) {
     val beatCount: Int
         get() = when {

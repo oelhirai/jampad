@@ -4,9 +4,11 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +26,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FiberManualRecord
@@ -47,6 +52,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -55,7 +61,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -86,6 +96,7 @@ fun JamScreen(viewModel: JamViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val waveform by viewModel.waveformSamples.collectAsStateWithLifecycle()
     val progress by viewModel.playbackProgress.collectAsStateWithLifecycle()
+    val fullRecWaveform by viewModel.fullRecordingWaveform.collectAsStateWithLifecycle()
     val drumStep by viewModel.drumCurrentStep.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
@@ -139,6 +150,14 @@ fun JamScreen(viewModel: JamViewModel = hiltViewModel()) {
         onDrumsMuteToggle = viewModel::onDrumsMuteToggle,
         onBassMuteToggle = viewModel::onBassMuteToggle,
         onClearSession = viewModel::onClearSession,
+        onMetronomeToggle = viewModel::onMetronomeToggle,
+        fullRecordingWaveform = fullRecWaveform,
+        onAlignStart = viewModel::onAlignStart,
+        onAlignCancel = viewModel::onAlignCancel,
+        onAlignApply = viewModel::onAlignApply,
+        onAlignOffsetChanged = viewModel::onAlignOffsetChanged,
+        onAlignPreview = viewModel::onAlignPreview,
+        onAlignBarCountChanged = viewModel::onAlignBarCountChanged,
     )
 }
 
@@ -171,6 +190,14 @@ private fun JamContent(
     onDrumsMuteToggle: () -> Unit,
     onBassMuteToggle: () -> Unit,
     onClearSession: () -> Unit,
+    onMetronomeToggle: () -> Unit,
+    fullRecordingWaveform: FloatArray,
+    onAlignStart: () -> Unit,
+    onAlignCancel: () -> Unit,
+    onAlignApply: () -> Unit,
+    onAlignOffsetChanged: (Float) -> Unit,
+    onAlignPreview: () -> Unit,
+    onAlignBarCountChanged: (Int) -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -196,6 +223,11 @@ private fun JamContent(
                             onSelected = onBarCountChanged,
                         )
                     }
+                    MetronomeToggle(
+                        enabled = uiState.metronomeEnabled,
+                        hasBpm = uiState.bpmSource != BpmSource.NONE,
+                        onToggle = onMetronomeToggle,
+                    )
                     IconButton(onClick = { /* Settings — M10 */ }) {
                         Icon(
                             imageVector = Icons.Default.Settings,
@@ -217,12 +249,26 @@ private fun JamContent(
                 .padding(horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Waveform strip
-            WaveformStrip(
+            // Waveform strip with align-to-grid controls
+            WaveformStripWithAlign(
                 loopState = uiState.loopState,
                 waveformSamples = waveformSamples,
                 playbackProgress = playbackProgress,
                 beatCount = uiState.beatCount,
+                isAligning = uiState.isAligning,
+                alignOffset = uiState.alignOffset,
+                alignBarCount = uiState.alignBarCount,
+                maxAlignBarCount = uiState.maxAlignBarCount,
+                bpm = uiState.bpm,
+                fullRecordingWaveform = fullRecordingWaveform,
+                fullRecordingLengthSamples = uiState.fullRecordingLengthSamples,
+                bpmSource = uiState.bpmSource,
+                onAlignStart = onAlignStart,
+                onAlignCancel = onAlignCancel,
+                onAlignApply = onAlignApply,
+                onAlignOffsetChanged = onAlignOffsetChanged,
+                onAlignPreview = onAlignPreview,
+                onAlignBarCountChanged = onAlignBarCountChanged,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -422,47 +468,327 @@ private fun BpmControl(
 }
 
 @Composable
-private fun WaveformStrip(
+private fun WaveformStripWithAlign(
     loopState: LoopState,
     waveformSamples: FloatArray,
     playbackProgress: Float,
     beatCount: Int,
+    isAligning: Boolean,
+    alignOffset: Float,
+    alignBarCount: Int,
+    maxAlignBarCount: Int,
+    bpm: Int,
+    fullRecordingWaveform: FloatArray,
+    fullRecordingLengthSamples: Int,
+    bpmSource: BpmSource,
+    onAlignStart: () -> Unit,
+    onAlignCancel: () -> Unit,
+    onAlignApply: () -> Unit,
+    onAlignOffsetChanged: (Float) -> Unit,
+    onAlignPreview: () -> Unit,
+    onAlignBarCountChanged: (Int) -> Unit,
 ) {
-    val borderColor = when (loopState) {
-        LoopState.RECORDING -> RecordRed.copy(alpha = 0.6f)
-        LoopState.OVERDUBBING -> GuitarAmber.copy(alpha = 0.6f)
-        else -> MaterialTheme.colorScheme.outline
-    }
+    Column {
+        val borderColor = when {
+            isAligning -> MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+            loopState == LoopState.RECORDING -> RecordRed.copy(alpha = 0.6f)
+            loopState == LoopState.OVERDUBBING -> GuitarAmber.copy(alpha = 0.6f)
+            else -> MaterialTheme.colorScheme.outline
+        }
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(100.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .border(1.dp, borderColor, RoundedCornerShape(16.dp)),
-        contentAlignment = Alignment.Center,
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(100.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .border(
+                    if (isAligning) 2.dp else 1.dp,
+                    borderColor,
+                    RoundedCornerShape(16.dp),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (isAligning && fullRecordingWaveform.isNotEmpty()) {
+                AlignOverlay(
+                    fullRecordingWaveform = fullRecordingWaveform,
+                    alignOffset = alignOffset,
+                    alignBarCount = alignBarCount,
+                    fullRecordingLengthSamples = fullRecordingLengthSamples,
+                    bpm = bpm,
+                    onOffsetChanged = onAlignOffsetChanged,
+                    onDragEnd = onAlignPreview,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            } else if (waveformSamples.isEmpty()) {
+                Text(
+                    text = when (loopState) {
+                        LoopState.EMPTY -> "Record a riff to get started"
+                        LoopState.RECORDING -> "Recording..."
+                        else -> ""
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                WaveformView(
+                    samples = waveformSamples,
+                    progress = if (loopState == LoopState.LOOPING || loopState == LoopState.OVERDUBBING) playbackProgress else 0f,
+                    beatCount = beatCount,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
+
+        // Align action row
+        if (isAligning) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(
+                    onClick = onAlignCancel,
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Cancel align",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                // Bar count +/- control
+                IconButton(
+                    onClick = { onAlignBarCountChanged(alignBarCount - 1) },
+                    enabled = alignBarCount > 1,
+                    modifier = Modifier.size(28.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Remove,
+                        contentDescription = "Fewer bars",
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                Text(
+                    text = "${alignBarCount}bar",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
+                IconButton(
+                    onClick = { onAlignBarCountChanged(alignBarCount + 1) },
+                    enabled = alignBarCount < maxAlignBarCount,
+                    modifier = Modifier.size(28.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "More bars",
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                IconButton(
+                    onClick = onAlignApply,
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Apply alignment",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
+            }
+        } else if (loopState == LoopState.LOOPING && waveformSamples.isNotEmpty() &&
+            bpmSource != BpmSource.NONE && fullRecordingLengthSamples > 0
+        ) {
+            // Show align button when loop is active and BPM is known
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable(onClick = onAlignStart)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCut,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Align",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AlignOverlay(
+    fullRecordingWaveform: FloatArray,
+    alignOffset: Float,
+    alignBarCount: Int,
+    fullRecordingLengthSamples: Int,
+    bpm: Int,
+    onOffsetChanged: (Float) -> Unit,
+    onDragEnd: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val waveformColor = GuitarAmber
+    val beatLineColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+    val indicatorColor = MaterialTheme.colorScheme.primary
+
+    // Calculate window fraction
+    val windowLengthSamples = (4 * alignBarCount * 60.0 / bpm * 44100).toInt()
+    val windowFraction = (windowLengthSamples.toFloat() / fullRecordingLengthSamples)
+        .coerceIn(0.01f, 1f)
+    val scrollableRange = (1f - windowFraction).coerceAtLeast(0.001f)
+
+    // Local offset for smooth dragging
+    var localOffset by remember { mutableFloatStateOf(alignOffset) }
+    LaunchedEffect(alignOffset) { localOffset = alignOffset }
+
+    Canvas(
+        modifier = modifier
+            .pointerInput(windowFraction) {
+                detectHorizontalDragGestures(
+                    onDragEnd = { onDragEnd() },
+                    onHorizontalDrag = { _, dragAmount ->
+                        // Drag left = advance (positive offset), tape-machine metaphor
+                        val delta = -dragAmount / size.width * (windowFraction / scrollableRange)
+                        localOffset = (localOffset + delta).coerceIn(0f, 1f)
+                        onOffsetChanged(localOffset)
+                    },
+                )
+            },
     ) {
-        if (waveformSamples.isEmpty()) {
-            Text(
-                text = when (loopState) {
-                    LoopState.EMPTY -> "Record a riff to get started"
-                    LoopState.RECORDING -> "Recording..."
-                    else -> ""
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        } else {
-            WaveformView(
-                samples = waveformSamples,
-                progress = if (loopState == LoopState.LOOPING || loopState == LoopState.OVERDUBBING) playbackProgress else 0f,
-                beatCount = beatCount,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+        val w = size.width
+        val h = size.height
+
+        // Calculate visible slice of full waveform
+        val startFraction = localOffset * scrollableRange
+        val endFraction = (startFraction + windowFraction).coerceAtMost(1f)
+        val startIdx = (startFraction * fullRecordingWaveform.size).toInt()
+            .coerceIn(0, fullRecordingWaveform.lastIndex)
+        val endIdx = (endFraction * fullRecordingWaveform.size).toInt()
+            .coerceIn(startIdx + 1, fullRecordingWaveform.size)
+        val visibleSamples = fullRecordingWaveform.copyOfRange(startIdx, endIdx)
+
+        // Draw waveform bars
+        val barWidth = 2.dp.toPx()
+        val gap = 1.dp.toPx()
+        val step = barWidth + gap
+        val barsCount = (w / step).toInt().coerceAtLeast(1)
+        val centerY = h / 2
+
+        for (i in 0 until barsCount) {
+            val sampleIndex = (i.toFloat() / barsCount * visibleSamples.size).toInt()
+                .coerceIn(0, visibleSamples.lastIndex)
+            val amplitude = visibleSamples[sampleIndex]
+            val barHeight = (amplitude * h * 0.8f).coerceAtLeast(2.dp.toPx())
+            val x = i * step + barWidth / 2
+
+            drawLine(
+                color = waveformColor,
+                start = Offset(x, centerY - barHeight / 2),
+                end = Offset(x, centerY + barHeight / 2),
+                strokeWidth = barWidth,
+                cap = StrokeCap.Round,
             )
         }
+
+        // Draw fixed beat grid lines
+        val totalBeats = alignBarCount * 4
+        for (beat in 1 until totalBeats) {
+            val x = w * beat / totalBeats
+            val isDownbeat = beat % 4 == 0
+            drawLine(
+                color = if (isDownbeat) beatLineColor.copy(alpha = 0.5f) else beatLineColor,
+                start = Offset(x, 0f),
+                end = Offset(x, h),
+                strokeWidth = if (isDownbeat) 1.5.dp.toPx() else 1.dp.toPx(),
+            )
+        }
+
+        // Scroll position indicator (thin bar at bottom)
+        val indicatorY = h - 3.dp.toPx()
+        val indicatorH = 2.dp.toPx()
+        // Background track
+        drawLine(
+            color = indicatorColor.copy(alpha = 0.15f),
+            start = Offset(0f, indicatorY),
+            end = Offset(w, indicatorY),
+            strokeWidth = indicatorH,
+        )
+        // Position thumb
+        val thumbStart = localOffset * scrollableRange * w
+        val thumbWidth = windowFraction * w
+        drawLine(
+            color = indicatorColor.copy(alpha = 0.6f),
+            start = Offset(thumbStart, indicatorY),
+            end = Offset(thumbStart + thumbWidth, indicatorY),
+            strokeWidth = indicatorH,
+            cap = StrokeCap.Round,
+        )
+    }
+}
+
+@Composable
+private fun MetronomeToggle(
+    enabled: Boolean,
+    hasBpm: Boolean,
+    onToggle: () -> Unit,
+) {
+    IconButton(
+        onClick = onToggle,
+        modifier = Modifier.size(36.dp),
+    ) {
+        // Use a text-based icon since Metronome may not be in all icon sets
+        Text(
+            text = if (enabled) "M" else "M",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace,
+            color = when {
+                enabled -> MaterialTheme.colorScheme.primary
+                hasBpm -> MaterialTheme.colorScheme.onSurfaceVariant
+                else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+            },
+            modifier = Modifier
+                .clip(CircleShape)
+                .then(
+                    if (enabled) Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                    else Modifier
+                )
+                .padding(4.dp),
+        )
     }
 }
 
@@ -1140,6 +1466,14 @@ private fun JamContentPreview() {
             onDrumsMuteToggle = {},
             onBassMuteToggle = {},
             onClearSession = {},
+            onMetronomeToggle = {},
+            fullRecordingWaveform = floatArrayOf(),
+            onAlignStart = {},
+            onAlignCancel = {},
+            onAlignApply = {},
+            onAlignOffsetChanged = {},
+            onAlignPreview = {},
+            onAlignBarCountChanged = {},
         )
     }
 }

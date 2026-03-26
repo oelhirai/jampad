@@ -6,6 +6,7 @@ import com.jampad.data.audio.AudioRecorder
 import com.jampad.data.audio.BassEngine
 import com.jampad.data.audio.DrumEngine
 import com.jampad.data.audio.LoopEngine
+import com.jampad.data.audio.MetronomeEngine
 import com.jampad.data.detection.PitchDetector
 import com.jampad.data.detection.TapTempoCalculator
 import com.jampad.data.detection.TapTempoResult
@@ -38,6 +39,7 @@ class JamViewModel @Inject constructor(
     private val loopEngine: LoopEngine,
     private val drumEngine: DrumEngine,
     private val bassEngine: BassEngine,
+    private val metronomeEngine: MetronomeEngine,
     private val tempoDetector: TempoDetector,
     private val pitchDetector: PitchDetector,
 ) : ViewModel() {
@@ -47,6 +49,7 @@ class JamViewModel @Inject constructor(
 
     val waveformSamples: StateFlow<FloatArray> = loopEngine.waveformSamples
     val playbackProgress: StateFlow<Float> = loopEngine.playbackProgress
+    val fullRecordingWaveform: StateFlow<FloatArray> = loopEngine.fullRecordingWaveform
     val drumCurrentStep: StateFlow<Int> = drumEngine.currentStep
 
     private val tapTempoCalculator = TapTempoCalculator()
@@ -63,10 +66,18 @@ class JamViewModel @Inject constructor(
                         if (prevState == LoopState.RECORDING && ui.recordingMode == RecordingMode.FREE) {
                             // Free-record: detect BPM and key before starting engines
                             _uiState.update {
-                                it.copy(loopLengthSamples = loopEngine.getLoopDurationSamples())
+                                it.copy(
+                                    loopLengthSamples = loopEngine.getLoopDurationSamples(),
+                                    fullRecordingLengthSamples = loopEngine.getFullRecordingLengthSamples(),
+                                )
                             }
                             launchDetection()
                         } else {
+                            if (prevState == LoopState.RECORDING) {
+                                _uiState.update {
+                                    it.copy(fullRecordingLengthSamples = loopEngine.getFullRecordingLengthSamples())
+                                }
+                            }
                             startLayerEngines()
                         }
                     }
@@ -89,6 +100,10 @@ class JamViewModel @Inject constructor(
         val clamped = bpm.coerceIn(40, 300)
         _uiState.update { it.copy(bpm = clamped, bpmSource = BpmSource.MANUAL) }
         loopEngine.updateTempo(clamped, _uiState.value.barCount)
+        // Exit align mode if BPM changes (window size would change)
+        if (_uiState.value.isAligning) {
+            _uiState.update { it.copy(isAligning = false, alignOffset = 0f) }
+        }
         if (_uiState.value.loopState == LoopState.LOOPING ||
             _uiState.value.loopState == LoopState.OVERDUBBING
         ) {
@@ -107,9 +122,143 @@ class JamViewModel @Inject constructor(
 
     fun onBigButtonPress() {
         val ui = _uiState.value
+
+        // Start metronome when beginning to record (if enabled and BPM is set)
+        if (ui.loopState == LoopState.EMPTY && ui.metronomeEnabled && ui.bpmSource != BpmSource.NONE) {
+            metronomeEngine.start(ui.bpm)
+        }
+        // Stop metronome when stopping recording
+        if (ui.loopState == LoopState.RECORDING) {
+            metronomeEngine.stop()
+        }
+
+        // Exit align mode if active
+        if (ui.isAligning) {
+            _uiState.update { it.copy(isAligning = false, alignOffset = 0f) }
+        }
+
         loopEngine.recordingMode = ui.recordingMode
         loopEngine.updateTempo(ui.bpm, ui.barCount)
         loopEngine.onBigButtonPress()
+    }
+
+    fun onMetronomeToggle() {
+        _uiState.update { it.copy(metronomeEnabled = !it.metronomeEnabled) }
+    }
+
+    // Align-to-grid controls
+    fun onAlignStart() {
+        val ui = _uiState.value
+        val fullLength = loopEngine.getFullRecordingLengthSamples()
+        if (fullLength == 0) return
+
+        val bpm = ui.bpm
+        // Find max bar count that fits (check 1..16)
+        val maxBars = (16 downTo 1).firstOrNull { bars ->
+            loopEngine.getWindowLengthSamples(bpm, bars) <= fullLength
+        } ?: return // recording too short for even 1 bar
+
+        val defaultBars = if (loopEngine.getWindowLengthSamples(bpm, ui.barCount) <= fullLength) {
+            ui.barCount
+        } else {
+            maxBars.coerceAtMost(4)
+        }
+
+        _uiState.update {
+            it.copy(
+                isAligning = true,
+                alignOffset = 0f,
+                alignBarCount = defaultBars,
+                maxAlignBarCount = maxBars,
+                fullRecordingLengthSamples = fullLength,
+            )
+        }
+    }
+
+    fun onAlignCancel() {
+        _uiState.update { it.copy(isAligning = false, alignOffset = 0f) }
+    }
+
+    fun onAlignOffsetChanged(offset: Float) {
+        _uiState.update { it.copy(alignOffset = offset.coerceIn(0f, 1f)) }
+    }
+
+    fun onAlignPreview() {
+        val ui = _uiState.value
+        if (!ui.isAligning) return
+        // Restart loop + layer engines in sync
+        drumEngine.stop()
+        bassEngine.stop()
+        loopEngine.alignLoop(ui.alignOffset, ui.bpm, ui.alignBarCount)
+        restartLayerEnginesForAlign(ui.bpm, ui.alignBarCount)
+    }
+
+    private fun restartLayerEnginesForAlign(bpm: Int, barCount: Int) {
+        val ui = _uiState.value
+        val mix = ui.mixState
+        applyGuitarVolume(mix.guitarVolume, mix.guitarMuted)
+        if (ui.drumPattern.hits.values.any { hits -> hits.any { it } }) {
+            drumEngine.pattern = ui.drumPattern
+            drumEngine.volume = if (mix.drumsMuted) 0f else mix.drumsVolume
+            drumEngine.start(bpm, barCount)
+        }
+        if (ui.bassConfig.enabled) {
+            bassEngine.config = ui.bassConfig
+            bassEngine.volume = if (mix.bassMuted) 0f else mix.bassVolume
+            bassEngine.start(bpm)
+        }
+    }
+
+    fun onAlignBarCountChanged(barCount: Int) {
+        val ui = _uiState.value
+        val clamped = barCount.coerceIn(1, ui.maxAlignBarCount)
+        val windowLength = loopEngine.getWindowLengthSamples(ui.bpm, clamped)
+        if (windowLength > ui.fullRecordingLengthSamples) return
+        _uiState.update { it.copy(alignBarCount = clamped, alignOffset = 0f) }
+        // Preview the new window with synced engines
+        drumEngine.stop()
+        bassEngine.stop()
+        loopEngine.alignLoop(0f, ui.bpm, clamped)
+        restartLayerEnginesForAlign(ui.bpm, clamped)
+    }
+
+    fun onAlignApply() {
+        val ui = _uiState.value
+        if (!ui.isAligning) return
+
+        drumEngine.stop()
+        bassEngine.stop()
+
+        loopEngine.alignLoop(ui.alignOffset, ui.bpm, ui.alignBarCount)
+        _uiState.update {
+            it.copy(
+                isAligning = false,
+                alignOffset = 0f,
+                barCount = ui.alignBarCount,
+                loopLengthSamples = loopEngine.getLoopDurationSamples(),
+            )
+        }
+        loopEngine.updateTempo(ui.bpm, ui.alignBarCount)
+
+        // Restart engines in sync with the aligned loop
+        restartLayerEnginesForAlign(ui.bpm, ui.alignBarCount)
+
+        // Re-detect key from aligned audio (async, won't restart engines again)
+        viewModelScope.launch {
+            val audio = loopEngine.getRecordedAudio() ?: return@launch
+            val pitchResult = withContext(Dispatchers.Default) {
+                pitchDetector.detect(audio, AudioRecorder.SAMPLE_RATE)
+            }
+            if (pitchResult.detectedKey != null) {
+                _uiState.update {
+                    it.copy(
+                        detectedKey = pitchResult.detectedKey,
+                        bassConfig = it.bassConfig.copy(key = pitchResult.detectedKey.root),
+                    )
+                }
+                bassEngine.config = _uiState.value.bassConfig
+            }
+        }
     }
 
     fun onTapTempo() {
@@ -148,6 +297,7 @@ class JamViewModel @Inject constructor(
         loopEngine.clearSession()
         drumEngine.stop()
         bassEngine.stop()
+        metronomeEngine.stop()
         tapTempoCalculator.reset()
         _uiState.update {
             it.copy(
@@ -160,6 +310,11 @@ class JamViewModel @Inject constructor(
                 detectedKey = null,
                 isDetecting = false,
                 loopLengthSamples = 0,
+                isAligning = false,
+                alignOffset = 0f,
+                alignBarCount = 4,
+                maxAlignBarCount = 16,
+                fullRecordingLengthSamples = 0,
             )
         }
     }
@@ -393,5 +548,6 @@ class JamViewModel @Inject constructor(
         loopEngine.clearSession()
         drumEngine.stop()
         bassEngine.stop()
+        metronomeEngine.stop()
     }
 }

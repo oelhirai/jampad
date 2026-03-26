@@ -11,7 +11,14 @@
 
 ## Current Phase
 
-**Phase M7 — Mixer & Layering** `✅ Done`
+**Phase M7+ — Post-M7 UX improvements** `🔄 In progress`
+
+Features added after M7:
+- **Metronome** — synthesized click track (down/upbeat accents) plays during recording so the player stays on beat
+- **Align to Grid** — replaces the old trim feature. After recording, user scrolls the full recording behind a fixed beat grid (tape-machine metaphor) to select an exact N-bar window. Guarantees BPM-locked loops by construction.
+  - Bar count adjustable 1–16 via +/- buttons (replaced fixed 4/8/16 chips)
+  - Live audio preview on drag end and bar count change — hear the selected window immediately
+  - Drum/bass engines restart in sync with aligned loop to prevent drift
 
 ---
 
